@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.0](https://github.com/vazarkevych/growthbook-golang/compare/v0.8.0...v0.9.0) (2026-11-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* Targeting conditions are strict about types: values are no longer converted between types, negated operators always give the opposite result of their positive form, booleans are not ordered, and version operators need two strings or two numbers. Conditions that use an operator or saved group type the SDK does not support always fail, even under $not or $nor. Only strings and numbers can be hash attributes; other values (booleans, arrays, objects, 0 and "") count as missing. Percentage rollouts no longer include one extra hash bucket. Hashing uses UTF-16 code units, like the JavaScript SDK, which changes bucketing only for ids and experiment or feature keys that contain non-ASCII characters (such as é, CJK or emoji); ASCII ids and keys are unaffected.
+
+### Features
+
+* add FeaturesRefreshHandler for refresh lifecycle observability ([#71](https://github.com/vazarkevych/growthbook-golang/issues/71)) ([69af82f](https://github.com/vazarkevych/growthbook-golang/commit/69af82f30d71114f57e2ea86edb7c434cbe923c3))
+* add ReducePayload, Client.ReducePayload and PruneCondition to shrink a payload to what one user needs ([bd5eff2](https://github.com/vazarkevych/growthbook-golang/commit/bd5eff2e0444359425c4ca1e52226e6a12edf331))
+* add remote saved groups (savedGroupReferencesRemote) ([#111](https://github.com/vazarkevych/growthbook-golang/issues/111)) ([bfe3778](https://github.com/vazarkevych/growthbook-golang/commit/bfe3778ae1824dc07e0a763c35537a22545e3f9c))
+* align with spec 0.12.0 (strict types, condition edge cases, bucketing, payload reduction) ([#106](https://github.com/vazarkevych/growthbook-golang/issues/106)) ([bd5eff2](https://github.com/vazarkevych/growthbook-golang/commit/bd5eff2e0444359425c4ca1e52226e6a12edf331))
+
+
+### Bug Fixes
+
+* prevent FMA fusion in getBucketRanges ([#103](https://github.com/vazarkevych/growthbook-golang/issues/103)) ([0793fae](https://github.com/vazarkevych/growthbook-golang/commit/0793faef39175d8c349f96562e3ea5ab500d5fd4))
+
+
+### Performance Improvements
+
+* cut evaluation allocations, speed up legacy string groups and version padding ([#114](https://github.com/vazarkevych/growthbook-golang/issues/114)) ([3e99e8c](https://github.com/vazarkevych/growthbook-golang/commit/3e99e8c43e0f236eb38aa101ad91d5e3b134b1fd))
+
 ## [0.8.0](https://github.com/growthbook/growthbook-golang/compare/v0.7.0...v0.8.0) (2026-11-20)
 
 
