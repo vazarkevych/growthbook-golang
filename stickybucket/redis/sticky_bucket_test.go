@@ -257,15 +257,74 @@ func TestSaveRejectsIncompleteDocument(t *testing.T) {
 }
 
 func TestCancelledContextStopsCalls(t *testing.T) {
+	_, rdb := newMiniRedis(t)
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
+	svc := New(rdb, WithContext(cancelled))
 
-	fake := newFakeRedis()
-	// The fake ignores ctx, so this only proves the option is wired; against a
-	// real client the cancelled context aborts the command.
-	svc := New(fake, WithContext(cancelled), WithTimeout(time.Second))
+	_, err := svc.GetAssignments("id", "user-1")
+	require.ErrorIs(t, err, context.Canceled)
+
+	_, err = svc.GetAllAssignments(map[string]string{"id": "user-1", "device": "d-1"})
+	require.ErrorIs(t, err, context.Canceled)
+
+	err = svc.SaveAssignments(doc("id", "user-1", map[string]string{"exp__0": "1"}))
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+// ctxRecorder wraps fakeRedis and records the context of every call.
+type ctxRecorder struct {
+	*fakeRedis
+	ctxs []context.Context
+}
+
+func (r *ctxRecorder) Get(ctx context.Context, key string) *goredis.StringCmd {
+	r.ctxs = append(r.ctxs, ctx)
+	return r.fakeRedis.Get(ctx, key)
+}
+
+func (r *ctxRecorder) Eval(ctx context.Context, script string, keys []string, args ...any) *goredis.Cmd {
+	r.ctxs = append(r.ctxs, ctx)
+	return r.fakeRedis.Eval(ctx, script, keys, args...)
+}
+
+func (r *ctxRecorder) MGet(ctx context.Context, keys ...string) *goredis.SliceCmd {
+	r.ctxs = append(r.ctxs, ctx)
+	return r.fakeRedis.MGet(ctx, keys...)
+}
+
+func TestTimeoutBoundsEachCall(t *testing.T) {
+	const timeout = time.Minute
+	rec := &ctxRecorder{fakeRedis: newFakeRedis()}
+	svc := New(rec, WithTimeout(timeout))
+
+	start := time.Now()
 	_, err := svc.GetAssignments("id", "user-1")
 	require.NoError(t, err)
+	_, err = svc.GetAllAssignments(map[string]string{"id": "user-1"})
+	require.NoError(t, err)
+	require.NoError(t, svc.SaveAssignments(doc("id", "user-1", map[string]string{"exp__0": "1"})))
+
+	require.Len(t, rec.ctxs, 3)
+	for _, c := range rec.ctxs {
+		deadline, ok := c.Deadline()
+		require.True(t, ok, "call has no deadline")
+		require.WithinDuration(t, start.Add(timeout), deadline, 10*time.Second)
+		// Each call's context is released once the call returns.
+		require.ErrorIs(t, c.Err(), context.Canceled)
+	}
+}
+
+func TestNoTimeoutMeansNoDeadline(t *testing.T) {
+	rec := &ctxRecorder{fakeRedis: newFakeRedis()}
+	svc := New(rec)
+
+	_, err := svc.GetAssignments("id", "user-1")
+	require.NoError(t, err)
+
+	require.Len(t, rec.ctxs, 1)
+	_, ok := rec.ctxs[0].Deadline()
+	require.False(t, ok)
 }
 
 // All traffic is weighted into variation 0, so fresh bucketing can only ever
