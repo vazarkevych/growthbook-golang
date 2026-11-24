@@ -62,6 +62,18 @@ type Client struct {
 	// WithTrackingBuffer). Shared by reference with cloned clients — the
 	// attacher chose the scope — hence mutex-guarded.
 	trackingBuffer *TrackingBuffer
+
+	// remoteGroupIDs are the remote saved groups the user is in. nil means
+	// unresolved, which is not the same as no groups (see WithRemoteGroupIds).
+	remoteGroupIDs []string
+	// remoteGroupsLookedUp are the payload's remote groups AddRemoteSavedGroups
+	// looked remoteGroupIDs up for, at savedGroupsVersion
+	// remoteGroupsLookedUpVersion. The child shares the live payload, so once
+	// its remote groups change the ids no longer cover them and count as
+	// unresolved; so do they once the attributes those groups use change (see
+	// setAttributes). nil when the app set the ids with WithRemoteGroupIds.
+	remoteGroupsLookedUp        []condition.RemoteGroup
+	remoteGroupsLookedUpVersion uint64
 }
 
 // ForcedVariationsMap is a map that forces an Experiment to always assign a specific variation. Useful for QA.
@@ -322,7 +334,7 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) (bool, time.Tim
 			d.features = features
 		}
 		if savedGroupsPresent {
-			d.savedGroups = savedGroups
+			d.setSavedGroups(savedGroups)
 			d.savedGroupsFromCode = false
 		}
 		if banditsPresent {
@@ -581,7 +593,11 @@ func (client *Client) evaluator(ctx context.Context) (evaluator, []Plugin) {
 	savedGroups := client.data.savedGroups
 	contextualBandits := client.data.contextualBandits
 	plugins := client.data.plugins
+	remoteGroups := client.data.remoteGroups
+	remoteGroupIDs := client.currentRemoteGroupIDs(remoteGroups, client.data.savedGroupsVersion)
+	conditionAttributes := client.conditionAttributes(remoteGroupIDs)
 	client.data.mu.RUnlock()
+	client.warnIfRemoteGroupIDsMissing(remoteGroups, remoteGroupIDs)
 
 	// In remote-eval mode the features are the server-evaluated set for this
 	// client's attributes, loaded lazily; none when loading failed. This may
@@ -591,11 +607,12 @@ func (client *Client) evaluator(ctx context.Context) (evaluator, []Plugin) {
 	}
 
 	e := evaluator{
-		features:          features,
-		savedGroups:       savedGroups,
-		contextualBandits: contextualBandits,
-		client:            client,
-		ctx:               ctx,
+		features:            features,
+		savedGroups:         savedGroups,
+		contextualBandits:   contextualBandits,
+		conditionAttributes: conditionAttributes,
+		client:              client,
+		ctx:                 ctx,
 	}
 	// Plugins and the event logger consume both exposures and feature usage;
 	// the tracking buffer and ExperimentCallback only exposures, and
